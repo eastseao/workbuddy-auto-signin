@@ -314,9 +314,11 @@ def do_travel(at, dry_run=False, location_id=None):
            "summary": "", "raw": {}, "error": None}
     try:
         cfg = travel_get(at, TRAVEL_CONFIG_PATH)
-        res["raw"]["config"] = cfg["response"]
         locations = ((cfg.get("data") or {}).get("locations") or []) if cfg["ok"] else []
         res["locations"] = [{"id": l.get("id"), "name": l.get("name")} for l in locations]
+        # 只留「可选地点」的 id/name，避免把整包配图塞进报告
+        res["raw"]["config"] = {"http": cfg["http"], "ok": cfg["ok"],
+                                "locations": res["locations"]}
 
         st0 = travel_get(at, TRAVEL_STATUS_PATH)
         res["raw"]["status_before"] = st0["response"]
@@ -400,16 +402,28 @@ def do_travel(at, dry_run=False, location_id=None):
 
         res["state_text"] = TRAVEL_STATE_TEXT.get(res["state_after"] or res["state_before"],
                                                   res["state_after"] or res["state_before"])
-        actions = res["actions"]
-        failed = [a for a in actions if not a.get("ok")]
+        acts = res["actions"]
+        failed = [a for a in acts if not a.get("ok") and not a.get("skipped")]
         if failed:
             res["ok"] = False
             res["error"] = failed[0].get("detail")
-            res["summary"] = "猫猫：执行失败 —— " + str(res["error"])
-        else:
-            res["ok"] = True
-            parts = [a["detail"] for a in actions] or ["无需操作"]
-            res["summary"] = "猫猫：" + "；".join(parts)
+            res["summary"] = "猫猫：执行失败 —— %s" % res["error"]
+            return res
+
+        res["ok"] = True
+        parts = [a["detail"] for a in acts]
+        after = res["state_after"] or res["state_before"]
+        if after == "traveling":
+            tail = "旅行中（%s），预计还有 %s 到家" % (
+                res.get("location_name") or "?", res.get("remaining_text") or "?")
+            if res["daily_limit_reached"]:
+                tail += "；今日已派过，不重复派遣"
+            parts.append(tail)
+        elif after == "arrived" and not parts:
+            parts.append("已到家但本次未领取成功，下次运行会自动补领")
+        elif after == "idle" and not parts:
+            parts.append("空闲且无待领取（本轮未派遣）")
+        res["summary"] = "猫猫：" + "；".join(parts or ["无需操作"])
         return res
     except Exception as e:                                       # 兜底：绝不影响签到
         res["ok"] = False

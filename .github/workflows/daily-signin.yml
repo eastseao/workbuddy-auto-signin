@@ -1,0 +1,56 @@
+name: WorkBuddy 每日签到 + 派猫猫
+
+# 每天定时跑一次，一次把「签到」和「派猫猫」都做掉，结果推送到飞书。
+# 云端 runner 无本机登录态：凭证全部来自仓库 Secret，明文不进仓库、不进日志。
+
+on:
+  schedule:
+    # UTC 01:00 == 北京时间 09:00（服务器时区为 UTC）
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "只读演练（不发任何写请求：不签到/不领取/不派遣）"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workbuddy-daily
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 动态解析 python 解释器（不写死版本号）
+        run: |
+          PYTHON_BIN="$(command -v python3 || command -v python)"
+          echo "python => ${PYTHON_BIN}"
+          echo "PYTHON_BIN=${PYTHON_BIN}" >> "${GITHUB_ENV}"
+
+      - name: 执行签到 + 派猫猫 + 飞书推送
+        env:
+          WB_REFRESH_TOKEN: ${{ secrets.WB_REFRESH_TOKEN }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
+        run: |
+          EXTRA=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then EXTRA="--dry-run"; fi
+          # shellcheck disable=SC2086
+          "${PYTHON_BIN}" runner/signin.py ${EXTRA} --json-out report.json
+
+      - name: 上传脱敏报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workbuddy-report
+          path: report.json
+          if-no-files-found: ignore
+          retention-days: 14

@@ -6,7 +6,7 @@ name: WorkBuddy 每日签到 + 派猫猫
 on:
   schedule:
     # UTC 01:00 == 北京时间 09:00（服务器时区为 UTC）
-    - cron: "0 1 * * *"
+    - cron: "*/5 * * * *"   # TEMP-SCHEDULE-CHECK (验证 fork 定时触发后改回 0 1 * * *)
   workflow_dispatch:
     inputs:
       dry_run:
